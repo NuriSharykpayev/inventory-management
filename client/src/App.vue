@@ -1,42 +1,76 @@
 <template>
-  <div class="app">
-    <header class="top-nav">
-      <div class="nav-container">
-        <div class="logo">
-          <h1>{{ t('nav.companyName') }}</h1>
-          <span class="subtitle">{{ t('nav.subtitle') }}</span>
-        </div>
-        <nav class="nav-tabs">
-          <router-link to="/" :class="{ active: $route.path === '/' }">
-            {{ t('nav.overview') }}
-          </router-link>
-          <router-link to="/inventory" :class="{ active: $route.path === '/inventory' }">
-            {{ t('nav.inventory') }}
-          </router-link>
-          <router-link to="/orders" :class="{ active: $route.path === '/orders' }">
-            {{ t('nav.orders') }}
-          </router-link>
-          <router-link to="/spending" :class="{ active: $route.path === '/spending' }">
-            {{ t('nav.finance') }}
-          </router-link>
-          <router-link to="/demand" :class="{ active: $route.path === '/demand' }">
-            {{ t('nav.demandForecast') }}
-          </router-link>
-          <router-link to="/reports" :class="{ active: $route.path === '/reports' }">
-            Reports
-          </router-link>
-        </nav>
-        <LanguageSwitcher />
+  <div
+    class="app-shell"
+    :class="{
+      'is-rail': isRail,
+      'is-drawer-open': drawerOpen,
+      'is-overlay-open': overlayOpen
+    }"
+  >
+    <aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span class="brand-text">
+          <span class="brand-name">{{ t('nav.companyName') }}</span>
+          <span class="brand-subtitle">{{ t('nav.subtitle') }}</span>
+        </span>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Main">
+        <router-link
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="nav-item"
+          :exact-active-class="item.exact ? 'is-active' : undefined"
+          :active-class="item.exact ? '' : 'is-active'"
+          :title="isRail ? item.label : undefined"
+        >
+          <NavIcon :name="item.icon" />
+          <span class="nav-label">{{ item.label }}</span>
+        </router-link>
+      </nav>
+
+      <div class="sidebar-footer">
         <ProfileMenu
           @show-profile-details="showProfileDetails = true"
           @show-tasks="showTasks = true"
         />
+        <button
+          v-if="breakpoint !== 'mobile'"
+          class="collapse-toggle"
+          :aria-expanded="!isRail"
+          :title="isRail ? t('nav.expand') : undefined"
+          @click="onToggleSidebar"
+        >
+          <NavIcon :name="isRail ? 'chevron-right' : 'chevron-left'" />
+          <span class="nav-label">{{ isRail ? t('nav.expand') : t('nav.collapse') }}</span>
+        </button>
       </div>
-    </header>
-    <FilterBar />
-    <main class="main-content">
-      <router-view />
-    </main>
+    </aside>
+
+    <div class="sidebar-backdrop" @click="closeNav" />
+
+    <div class="shell-main">
+      <header class="topbar">
+        <button
+          class="menu-toggle"
+          aria-controls="app-sidebar"
+          :aria-expanded="drawerOpen"
+          @click="drawerOpen = !drawerOpen"
+        >
+          <NavIcon name="menu" />
+        </button>
+        <h1 class="topbar-title">{{ currentTitle }}</h1>
+        <div class="topbar-actions">
+          <LanguageSwitcher />
+        </div>
+      </header>
+      <FilterBar />
+      <main class="main-content">
+        <router-view />
+      </main>
+    </div>
 
     <ProfileDetailsModal
       :is-open="showProfileDetails"
@@ -55,7 +89,8 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from './api'
 import { useAuth } from './composables/useAuth'
 import { useI18n } from './composables/useI18n'
@@ -64,6 +99,16 @@ import ProfileMenu from './components/ProfileMenu.vue'
 import ProfileDetailsModal from './components/ProfileDetailsModal.vue'
 import TasksModal from './components/TasksModal.vue'
 import LanguageSwitcher from './components/LanguageSwitcher.vue'
+import NavIcon from './components/NavIcon.vue'
+
+const STORAGE_KEY = 'sidebar-collapsed'
+const readCollapsed = () => {
+  try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false }
+}
+
+// Keep these in sync with the @media queries in the <style> block below
+const DESKTOP_QUERY = '(min-width: 1280px)'
+const TABLET_QUERY = '(min-width: 768px)'
 
 export default {
   name: 'App',
@@ -72,11 +117,13 @@ export default {
     ProfileMenu,
     ProfileDetailsModal,
     TasksModal,
-    LanguageSwitcher
+    LanguageSwitcher,
+    NavIcon
   },
   setup() {
     const { currentUser } = useAuth()
     const { t } = useI18n()
+    const route = useRoute()
     const showProfileDetails = ref(false)
     const showTasks = ref(false)
     const apiTasks = ref([])
@@ -146,7 +193,79 @@ export default {
       }
     }
 
-    onMounted(loadTasks)
+    // Sidebar has three tiers so wide screens get labels, mid-size screens keep
+    // content width (icon rail), and phones get an off-canvas drawer.
+    const navItems = computed(() => [
+      { to: '/', label: t('nav.overview'), icon: 'overview', exact: true },
+      { to: '/inventory', label: t('nav.inventory'), icon: 'inventory' },
+      { to: '/orders', label: t('nav.orders'), icon: 'orders' },
+      { to: '/spending', label: t('nav.finance'), icon: 'finance' },
+      { to: '/demand', label: t('nav.demandForecast'), icon: 'demand' },
+      { to: '/reports', label: t('nav.reports'), icon: 'reports' }
+    ])
+
+    const currentTitle = computed(() => {
+      const item = navItems.value.find(i => (i.exact ? route.path === i.to : route.path.startsWith(i.to)))
+      return item ? item.label : t('nav.companyName')
+    })
+
+    const collapsed = ref(readCollapsed())
+    const drawerOpen = ref(false)
+    const overlayOpen = ref(false)
+    const breakpoint = ref('desktop')
+
+    // Rail is forced on tablets regardless of the saved preference; the saved
+    // preference only applies on desktop. Never a rail on mobile (drawer is full width).
+    const isRail = computed(() =>
+      (breakpoint.value === 'tablet' && !overlayOpen.value) ||
+      (breakpoint.value === 'desktop' && collapsed.value)
+    )
+
+    const toggleCollapsed = () => {
+      collapsed.value = !collapsed.value
+      try {
+        localStorage.setItem(STORAGE_KEY, collapsed.value ? '1' : '0')
+      } catch { /* storage blocked: keep in-memory state */ }
+    }
+
+    // On tablets the expansion is temporary, so it must not overwrite the saved desktop preference
+    const onToggleSidebar = () => {
+      if (breakpoint.value === 'tablet') overlayOpen.value = !overlayOpen.value
+      else toggleCollapsed()
+    }
+
+    const closeNav = () => {
+      drawerOpen.value = false
+      overlayOpen.value = false
+    }
+
+    // The drawer/overlay would otherwise keep covering the page we just navigated to
+    watch(() => route.path, closeNav)
+
+    const desktopMql = window.matchMedia(DESKTOP_QUERY)
+    const tabletMql = window.matchMedia(TABLET_QUERY)
+    const updateBreakpoint = () => {
+      breakpoint.value = desktopMql.matches ? 'desktop' : tabletMql.matches ? 'tablet' : 'mobile'
+    }
+    // A stale drawer/overlay state would be wrong in the new tier
+    watch(breakpoint, closeNav)
+    updateBreakpoint()
+
+    const onKeydown = (e) => {
+      if (e.key === 'Escape') closeNav()
+    }
+
+    onMounted(() => {
+      loadTasks()
+      desktopMql.addEventListener('change', updateBreakpoint)
+      tabletMql.addEventListener('change', updateBreakpoint)
+      window.addEventListener('keydown', onKeydown)
+    })
+    onUnmounted(() => {
+      desktopMql.removeEventListener('change', updateBreakpoint)
+      tabletMql.removeEventListener('change', updateBreakpoint)
+      window.removeEventListener('keydown', onKeydown)
+    })
 
     return {
       t,
@@ -155,13 +274,70 @@ export default {
       tasks,
       addTask,
       deleteTask,
-      toggleTask
+      toggleTask,
+      navItems,
+      currentTitle,
+      breakpoint,
+      isRail,
+      drawerOpen,
+      overlayOpen,
+      onToggleSidebar,
+      closeNav
     }
   }
 }
 </script>
 
 <style>
+:root {
+  /* Spacing (4px base) */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* Radius and elevation */
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.18);
+
+  /* Type scale */
+  --text-xs: 12px; --text-sm: 13px; --text-base: 14px; --text-lg: 16px;
+  --text-xl: 20px; --text-2xl: 24px; --text-3xl: 30px;
+  --leading-tight: 1.25; --leading-normal: 1.5;
+
+  /* Semantic color */
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-primary: #4f46e5;
+  --color-primary-soft: #eef2ff;
+  --color-success: #16a34a; --color-success-soft: #f0fdf4;
+  --color-warning: #ca8a04; --color-warning-soft: #fefce8;
+  /* Yellow #ca8a04 is too light for text on white/soft yellow; use this for text */
+  --color-warning-text: #a16207;
+  --color-danger: #dc2626; --color-danger-soft: #fef2f2;
+  /* Info stays blue (status color) while primary is indigo */
+  --color-info: #2563eb; --color-info-soft: #eff6ff;
+
+  /* Sidebar */
+  --sidebar-bg: #0f172a;
+  --sidebar-text: #94a3b8;
+  --sidebar-text-active: #ffffff;
+  --sidebar-item-hover: rgba(255, 255, 255, 0.06);
+  --sidebar-item-active: rgba(255, 255, 255, 0.10);
+
+  /* Layout */
+  --sidebar-width: 248px;
+  --sidebar-collapsed: 72px;
+  --topbar-height: 56px;
+  --content-max: 1440px;
+  /* Sidebar sits above the topbar so its profile dropdown paints over the topbar and filter bar. Modals use 1000/2000. */
+  --z-sidebar: 40; --z-topbar: 30; --z-backdrop: 45;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -170,201 +346,402 @@ export default {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  background: var(--color-bg);
+  color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-.app {
+/* ---------- Shell ---------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+/* Not .is-collapsed: rail state is derived in JS (saved preference on desktop, forced on tablet) */
+.app-shell.is-rail {
+  grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr);
+}
+
+/* Overlay/drawer sidebars are position: fixed, i.e. out of grid flow; pin the
+   content to its column so it doesn't slide into the sidebar's column */
+.shell-main {
+  grid-column: 2;
+  min-width: 0; /* stops wide tables/charts from blowing out the grid column */
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
 }
 
-.top-nav {
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+.sidebar {
   position: sticky;
   top: 0;
-  z-index: 100;
+  height: 100vh;
+  z-index: var(--z-sidebar);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-3);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  /* No overflow here: the profile dropdown opens upward and wider than the rail,
+     and any overflow value on the sidebar would clip it. Scrolling lives on .sidebar-nav. */
 }
 
-.nav-container {
-  max-width: 1600px;
-  margin: 0 auto;
+.sidebar-brand {
   display: flex;
   align-items: center;
-  padding: 0 2rem;
-  height: 70px;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  height: 40px;
+  color: var(--sidebar-text-active);
 }
 
-.nav-container > .nav-tabs {
-  margin-left: auto;
-  margin-right: 1rem;
-}
-
-.nav-container > .language-switcher {
-  margin-right: 1rem;
-}
-
-.logo {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.logo h1 {
-  font-size: 1.375rem;
+.brand-mark {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #ffffff;
   font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.025em;
+  font-size: var(--text-lg);
 }
 
-.subtitle {
-  font-size: 0.813rem;
-  color: #64748b;
-  font-weight: 400;
-  padding-left: 0.75rem;
-  border-left: 1px solid #e2e8f0;
-}
-
-.nav-tabs {
+.brand-text {
   display: flex;
-  gap: 0.25rem;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.nav-tabs a {
-  padding: 0.625rem 1.25rem;
-  color: #64748b;
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.938rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
+.brand-name {
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brand-subtitle {
+  font-size: var(--text-xs);
+  color: var(--sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-height: 0; /* lets the flex child shrink so overflow-y can actually scroll */
+  overflow-y: auto;
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: var(--space-3);
+}
+
+.nav-item,
+.collapse-toggle {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: inherit;
+  text-decoration: none;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-.nav-tabs a:hover {
-  color: #0f172a;
-  background: #f1f5f9;
+.collapse-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
-.nav-tabs a.active {
-  color: #2563eb;
-  background: #eff6ff;
+.nav-item:hover,
+.collapse-toggle:hover {
+  background: var(--sidebar-item-hover);
+  color: var(--sidebar-text-active);
 }
 
-.nav-tabs a.active::after {
+.nav-item.is-active {
+  background: var(--sidebar-item-active);
+  color: var(--sidebar-text-active);
+}
+
+.nav-item.is-active::before {
   content: '';
   position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #2563eb;
+  left: calc(-1 * var(--space-3));
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-primary);
+}
+
+.nav-item:focus-visible,
+.collapse-toggle:focus-visible,
+.menu-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.is-rail .nav-label,
+.is-rail .brand-text {
+  display: none;
+}
+
+.is-rail .nav-item,
+.is-rail .collapse-toggle {
+  justify-content: center;
+  padding: 0;
+}
+
+.is-rail .sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-topbar);
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-8);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.topbar-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 .main-content {
   flex: 1;
-  max-width: 1600px;
   width: 100%;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 1.5rem 2rem;
+  padding: var(--space-8);
 }
 
+/*
+ * Responsive tiers (keep in sync with DESKTOP_QUERY / TABLET_QUERY in the script):
+ *   >= 1280px   full sidebar, optional manual rail
+ *   768-1279px  icon rail; toggle expands it as an overlay (content does not reflow)
+ *   < 768px     off-canvas drawer
+ */
+
+/* Tablet overlay: fixed so the content column stays 72px-offset and doesn't reflow */
+@media (max-width: 1279px) {
+  /* Column stays rail-width even while the overlay is open; that is what keeps content from reflowing */
+  .app-shell,
+  .app-shell.is-rail,
+  .app-shell.is-overlay-open {
+    grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr);
+  }
+
+  .app-shell.is-overlay-open .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    z-index: calc(var(--z-backdrop) + 1);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .app-shell.is-overlay-open .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-backdrop);
+    background: rgba(15, 23, 42, 0.2);
+  }
+}
+
+@media (max-width: 767px) {
+  .app-shell,
+  .app-shell.is-rail,
+  .app-shell.is-overlay-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell-main {
+    grid-column: 1;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .is-drawer-open .sidebar {
+    transform: none;
+    z-index: calc(var(--z-backdrop) + 1);
+  }
+
+  .is-drawer-open .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-backdrop);
+    background: rgba(15, 23, 42, 0.4);
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+  }
+
+  .topbar,
+  .main-content {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
+/* ---------- Shared primitives ---------- */
+
 .page-header {
-  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .page-header h2 {
-  font-size: 1.875rem;
+  font-size: var(--text-2xl);
   font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 0.375rem;
+  line-height: var(--leading-tight);
   letter-spacing: -0.025em;
+  color: var(--color-text);
+  margin: 0;
 }
 
 .page-header p {
-  color: #64748b;
-  font-size: 0.938rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+  margin: var(--space-1) 0 0;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .stat-card {
-  background: white;
-  padding: 1.25rem;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  transition: all 0.2s ease;
+  background: var(--color-surface);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .stat-card:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 .stat-label {
-  color: #64748b;
-  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 0.625rem;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
 }
 
 .stat-value {
-  font-size: 2.25rem;
+  font-size: var(--text-3xl);
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
 }
 
-.stat-card.warning .stat-value {
-  color: #ea580c;
-}
-
-.stat-card.success .stat-value {
-  color: #059669;
-}
-
-.stat-card.danger .stat-value {
-  color: #dc2626;
-}
-
-.stat-card.info .stat-value {
-  color: #2563eb;
-}
+.stat-card.warning .stat-value { color: var(--color-warning-text); }
+.stat-card.success .stat-value { color: var(--color-success); }
+.stat-card.danger .stat-value { color: var(--color-danger); }
+.stat-card.info .stat-value { color: var(--color-info); }
 
 .card {
-  background: white;
-  border-radius: 10px;
-  padding: 1.25rem;
-  border: 1px solid #e2e8f0;
-  margin-bottom: 1.25rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--space-6);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 0.875rem;
-  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .card-title {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.025em;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
 }
 
 .table-container {
@@ -377,26 +754,24 @@ table {
 }
 
 thead {
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--color-surface-muted);
 }
 
 th {
   text-align: left;
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-3) var(--space-4);
   font-weight: 600;
-  color: #475569;
-  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 td {
-  padding: 0.5rem 0.75rem;
-  border-top: 1px solid #f1f5f9;
-  color: #334155;
-  font-size: 0.875rem;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: var(--text-sm);
 }
 
 tbody tr {
@@ -404,83 +779,90 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: #f8fafc;
+  background: var(--color-surface-muted);
+}
+
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
-  display: inline-block;
-  padding: 0.313rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.025em;
 }
 
-.badge.success {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.badge.warning {
-  background: #fed7aa;
-  color: #92400e;
-}
-
-.badge.danger {
-  background: #fecaca;
-  color: #991b1b;
-}
-
-.badge.info {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
+.badge.success,
 .badge.increasing {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 
-.badge.decreasing {
-  background: #fecaca;
-  color: #991b1b;
-}
-
-.badge.stable {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-
-.badge.high {
-  background: #fecaca;
-  color: #991b1b;
-}
-
+.badge.warning,
 .badge.medium {
-  background: #fed7aa;
-  color: #92400e;
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
 }
 
+.badge.danger,
+.badge.decreasing,
+.badge.high {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.badge.info,
 .badge.low {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+
+/* Stable has no good/bad meaning: neutral slate rather than a status color */
+.badge.stable {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
 }
 
 .loading {
   text-align: center;
-  padding: 3rem;
-  color: #64748b;
-  font-size: 0.938rem;
+  padding: var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
 }
 
 .error {
-  background: #fef2f2;
+  background: var(--color-danger-soft);
   border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: 1rem;
-  border-radius: 8px;
-  margin: 1rem 0;
-  font-size: 0.938rem;
+  color: var(--color-danger);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+  font-size: var(--text-base);
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-10) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-muted), var(--color-border), var(--color-surface-muted));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 </style>

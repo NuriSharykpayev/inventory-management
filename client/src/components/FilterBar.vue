@@ -104,26 +104,35 @@ export default {
 .filters-bar {
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
-  padding: 0.75rem 0;
+  padding: var(--space-3) 0;
   position: sticky;
-  top: 70px;
-  z-index: 90;
+  top: var(--topbar-height);
+  /* Below the topbar (--z-topbar: 30) so the topbar's dropdowns paint over it */
+  z-index: 20;
 }
 
 .filters-container {
-  max-width: 1600px;
+  /* Matches .main-content so filters line up with the page below */
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 0 2rem;
+  padding: 0 var(--space-8);
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-4);
+}
+
+@media (max-width: 1023px) {
+  .filters-container {
+    padding: 0 var(--space-4);
+  }
 }
 
 .filters-grid {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-4);
   flex: 1;
+  flex-wrap: wrap; /* the content column is narrower than the old full-width bar */
 }
 
 .filter-group {
@@ -158,7 +167,7 @@ export default {
 
 .filter-select:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 

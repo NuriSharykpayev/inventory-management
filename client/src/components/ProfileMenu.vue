@@ -120,29 +120,47 @@ const handleLogout = () => {
   position: relative;
 }
 
+/* Trigger lives on the dark sidebar; the dropdown panel below stays light */
 .profile-button {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 0.875rem;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease;
   font-family: inherit;
 }
 
 .profile-button:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--sidebar-item-hover);
+}
+
+.profile-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Rail mode (set on the shell by App.vue): avatar only */
+:global(.is-rail) .profile-name,
+:global(.is-rail) .profile-button .chevron {
+  display: none;
+}
+
+:global(.is-rail) .profile-button {
+  justify-content: center;
+  padding: var(--space-2) 0;
 }
 
 .avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  flex-shrink: 0;
+  background: var(--color-primary);
   color: white;
   display: flex;
   align-items: center;
@@ -153,24 +171,37 @@ const handleLogout = () => {
 }
 
 .profile-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #0f172a;
+  color: var(--sidebar-text-active);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chevron {
-  color: #64748b;
+.profile-button .chevron {
+  color: var(--sidebar-text);
   transition: transform 0.2s ease;
 }
 
-.chevron-open {
+/* Menu opens upward, so the open state points the chevron up when closed */
+.chevron {
   transform: rotate(180deg);
+}
+
+.chevron-open {
+  transform: none;
 }
 
 .dropdown-menu {
   position: absolute;
-  top: calc(100% + 0.5rem);
-  right: 0;
+  /* Trigger sits at the bottom-left of the screen, so a downward/right-aligned
+     menu would open off-screen */
+  bottom: calc(100% + 0.5rem);
+  left: 0;
   min-width: 280px;
   background: white;
   border: 1px solid #e2e8f0;
@@ -192,7 +223,7 @@ const handleLogout = () => {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  background: var(--color-primary);
   color: white;
   display: flex;
   align-items: center;
@@ -269,7 +300,7 @@ const handleLogout = () => {
 
 .task-badge {
   margin-left: auto;
-  background: #2563eb;
+  background: var(--color-primary);
   color: white;
   font-size: 0.75rem;
   font-weight: 600;
